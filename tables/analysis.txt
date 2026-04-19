@@ -1,0 +1,43 @@
+=== TOP CWE OCCURRENCES ===
+
+
+     project            cwes  count
+123   gitlab  NVD-CWE-noinfo    294
+105   gitlab          CWE-79    200
+115   gitlab         CWE-863    127
+100   gitlab         CWE-770     89
+122   gitlab   NVD-CWE-Other     79
+114   gitlab         CWE-862     69
+14    gitlab         CWE-200     67
+10    gitlab        CWE-1333     66
+170  jenkins          CWE-79     61
+61    gitlab         CWE-400     56
+117   gitlab         CWE-918     52
+85    gitlab         CWE-639     49
+20    gitlab          CWE-22     33
+129  jenkins         CWE-200     31
+94    gitlab         CWE-732     30
+36    gitlab         CWE-284     26
+83    gitlab         CWE-601     23
+77    gitlab         CWE-532     22
+39    gitlab         CWE-287     19
+55    gitlab         CWE-352     19
+
+
+=== AVG RISK BY PROJECT ===
+
+
+project
+gitlab     5.780436
+jenkins    5.990157
+Name: cvss_score, dtype: float64
+
+
+=== STATUS DISTRIBUTION ===
+
+
+vulnStatus
+Modified    1136
+Analyzed     357
+Deferred      90
+Name: count, dtype: int64
