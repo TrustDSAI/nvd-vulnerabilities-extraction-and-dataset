@@ -1,0 +1,4 @@
+project,Broken Business Logic,Configuration & UI,Cryptography,Identity & Access Management,Information Exposure,Injection & Input Handling,Miscellaneous & Unmapped,Path & File Traversal,Resource & Memory Mgmt.,Total
+gitlab,125,30,30,417,150,301,472,35,164,1724
+jenkins,25,3,11,50,41,77,48,22,11,288
+Total,150,33,41,467,191,378,520,57,175,2012

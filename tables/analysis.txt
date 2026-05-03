@@ -22,22 +22,3 @@
 77    gitlab         CWE-532     22
 39    gitlab         CWE-287     19
 55    gitlab         CWE-352     19
-
-
-=== AVG RISK BY PROJECT ===
-
-
-project
-gitlab     5.780436
-jenkins    5.990157
-Name: cvss_score, dtype: float64
-
-
-=== STATUS DISTRIBUTION ===
-
-
-vulnStatus
-Modified    1136
-Analyzed     357
-Deferred      90
-Name: count, dtype: int64
