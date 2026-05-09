@@ -104,7 +104,7 @@
 - Not mapped.
 - Insertion of Sensitive Information into Log File
 - The product writes sensitive information to a log file.
-- Data protection. This compromises data confidentiality, since the records do not have the same level of protection as the production database.
+- Error Handling and Logging. This compromises data confidentiality, since the records do not have the same level of protection as the production database. As it envolves log files, it goes into this category.
 
 ## CWE-94:
 - Already mapped.
@@ -115,7 +115,7 @@
 - Not mapped.
 - Generation of Error Message Containing Sensitive Information
 - The product generates an error message that includes sensitive information about its environment, users, or associated data.
-- Data protection. This allows the attacker to have some insights in the internal system, leading to some possible main attacks.
+- Error Handling and Logging. This allows the attacker to have some insights in the internal system, leading to some possible main attacks. 
 
 ## CWE-269
 - Already mapped.
@@ -150,7 +150,7 @@
 - Not mapped
 - Improper Encoding or Escaping of Output
 - The product prepares a structured message for communication with another component, but encoding or escaping of the data is either missing or done incorrectly. As a result, the intended structure of the message is not preserved.
-- Input validation. Allows the attacker to introduce control sequences that changes the data interpretation from the receiver component, resulting in injection attacks.
+- Output Encoding. Allows the attacker to introduce control sequences that changes the data interpretation from the receiver component, resulting in injection attacks.
 
 ## CWE-1284:
 - Not mapped.
