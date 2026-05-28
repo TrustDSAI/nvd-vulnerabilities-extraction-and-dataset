@@ -141,14 +141,16 @@ def extract_cwes_list(weaknesses):
 def generate_top_10_chart_from_files(files_list, projects_list):
     # 1. Load and concatenate all datasets dynamically
     dfs = []
+    excluded = ["tekton", "travis_ci", "bamboo"]
     for file_path, project_name in zip(files_list, projects_list):
-        try:
-            df_temp = load_cve_dataset(file_path)
-            df_temp["project"] = project_name
-            dfs.append(df_temp)
-        except Exception as e:
-            print(f"Error loading {file_path}: {e}")
-            continue
+        if project_name not in excluded:
+            try:
+                df_temp = load_cve_dataset(file_path)
+                df_temp["project"] = project_name
+                dfs.append(df_temp)
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+                continue
 
     if not dfs:
         print("No data was successfully loaded.")
@@ -167,7 +169,7 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     # Find global maximum count to standardize the X-axis
     max_x_count = 0
     for project_name in projects_list:
-        proj_counts = clean_df[clean_df["project"] == project_name]["cwes"].value_counts().head(10)
+        proj_counts = clean_df[clean_df["project"] == project_name]["cwes"].value_counts().head(10) - len(excluded)
         if not proj_counts.empty:
             max_x_count = max(max_x_count, proj_counts.max())
 
@@ -175,7 +177,7 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     x_limit = max_x_count * 1.05
 
     # 2. Configure the subplot grid
-    num_projects = len(projects_list)
+    num_projects = len(projects_list) - len(excluded)
     cols = 3
     rows = (num_projects + cols - 1) // cols
 
@@ -185,75 +187,77 @@ def generate_top_10_chart_from_files(files_list, projects_list):
 
     palette = sns.color_palette("tab10", n_colors=num_projects)
     handles = []
-
+    plot_idx = 0
     # 3. Iterate over each project and plot its bar chart
     for i, project_name in enumerate(projects_list):
-        ax = axes[i]
-        color = palette[i]
+        if project_name not in excluded:
+            ax = axes[plot_idx]
+            color = palette[plot_idx]
+            plot_idx += 1
 
-        proj_data = clean_df[clean_df["project"] == project_name]
-        cwe_counts = proj_data["cwes"].value_counts()
-        top_cwes = cwe_counts.head(10).reset_index()
-        top_cwes.columns = ["cwe", "count"]
+            proj_data = clean_df[clean_df["project"] == project_name]
+            cwe_counts = proj_data["cwes"].value_counts()
+            top_cwes = cwe_counts.head(10).reset_index()
+            top_cwes.columns = ["cwe", "count"]
 
-        if not top_cwes.empty:
-            # Compute "Others" as the sum of all CWEs outside the top 10
-            others_count = cwe_counts.iloc[10:].sum()
-            if others_count > 0:
-                others_row = pd.DataFrame([{"cwe": "Others", "count": others_count}])
-                top_cwes = pd.concat([top_cwes, others_row], ignore_index=True)
+            if not top_cwes.empty:
+                # Compute "Others" as the sum of all CWEs outside the top 10
+                others_count = cwe_counts.iloc[10:].sum()
+                if others_count > 0:
+                    others_row = pd.DataFrame([{"cwe": "Others", "count": others_count}])
+                    top_cwes = pd.concat([top_cwes, others_row], ignore_index=True)
 
-            # Use a distinct colour for the "Others" bar
-            bar_colors = [color] * (len(top_cwes) - 1) + ["lightgray"]
+                # Use a distinct colour for the "Others" bar
+                bar_colors = [color] * (len(top_cwes) - 1) + ["lightgray"]
 
-            sns.barplot(data=top_cwes, x="count", y="cwe", ax=ax, palette=bar_colors)
+                sns.barplot(data=top_cwes, x="count", y="cwe", ax=ax, palette=bar_colors)
 
-            # NOVO CÓDIGO: Controlo manual da posição dos números
-            for p in ax.patches:
-                width = p.get_width() # O valor real (nº de vulnerabilidades)
-                
-                # Ignorar barras vazias ou valores nulos
-                if width == 0 or pd.isna(width):
-                    continue 
-                
-                # Se a barra ultrapassar o limite, o número fica "por cima" da barra (dentro do gráfico)
-                if width >= x_limit * 0.8:
-                    text_x = x_limit * 0.95  # Puxa o número ligeiramente para a esquerda da margem
-                    alinhamento = 'right'    # Alinha à direita para não cortar
-                    cor_texto = 'black'      # Branco lê-se melhor por cima da cor da barra
-                else:
-                    text_x = width + (x_limit * 0.02) # Posição normal (fora da barra)
-                    alinhamento = 'left'
-                    cor_texto = 'black'
-                
-                # Calcula o centro vertical da barra
-                y_pos = p.get_y() + (p.get_height() / 2) + p.get_height() * 0.1
-                
-                ax.text(
-                    x=text_x, 
-                    y=y_pos, 
-                    s=f'{int(width)}', 
-                    ha=alinhamento, 
-                    va='center', 
-                    fontsize=10, 
-                    color=cor_texto,
-                    fontweight='bold'
-                )
+                # NOVO CÓDIGO: Controlo manual da posição dos números
+                for p in ax.patches:
+                    width = p.get_width() # O valor real (nº de vulnerabilidades)
+                    
+                    # Ignorar barras vazias ou valores nulos
+                    if width == 0 or pd.isna(width):
+                        continue 
+                    
+                    # Se a barra ultrapassar o limite, o número fica "por cima" da barra (dentro do gráfico)
+                    if width >= x_limit * 0.8:
+                        text_x = x_limit * 0.95  # Puxa o número ligeiramente para a esquerda da margem
+                        alinhamento = 'right'    # Alinha à direita para não cortar
+                        cor_texto = 'black'      # Branco lê-se melhor por cima da cor da barra
+                    else:
+                        text_x = width + (x_limit * 0.02) # Posição normal (fora da barra)
+                        alinhamento = 'left'
+                        cor_texto = 'black'
+                    
+                    # Calcula o centro vertical da barra
+                    y_pos = p.get_y() + (p.get_height() / 2) + p.get_height() * 0.1
+                    
+                    ax.text(
+                        x=text_x, 
+                        y=y_pos, 
+                        s=f'{int(width)}', 
+                        ha=alinhamento, 
+                        va='center', 
+                        fontsize=10, 
+                        color=cor_texto,
+                        fontweight='bold'
+                    )
 
-            # Apply the same X-axis limit to all subplots
-            ax.set_xlim(0, x_limit)
+                # Apply the same X-axis limit to all subplots
+                ax.set_xlim(0, x_limit)
 
-            ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
-            ax.set_xlabel("Occurrences")
-            ax.set_ylabel("")
-        else:
-            ax.text(0.5, 0.5, "No Data / No CWEs Mapped",
-                    horizontalalignment="center", verticalalignment="center",
-                    transform=ax.transAxes, color="gray")
-            ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
-            ax.set_xlim(0, x_limit)
+                ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
+                ax.set_xlabel("Occurrences")
+                ax.set_ylabel("")
+            else:
+                ax.text(0.5, 0.5, "No Data / No CWEs Mapped",
+                        horizontalalignment="center", verticalalignment="center",
+                        transform=ax.transAxes, color="gray")
+                ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
+                ax.set_xlim(0, x_limit)
 
-        handles.append(plt.Rectangle((0, 0), 1, 1, color=color, label=project_name))
+            handles.append(plt.Rectangle((0, 0), 1, 1, color=color, label=project_name))
 
     # Hide empty subplots
     for j in range(i + 1, len(axes)):
@@ -409,6 +413,30 @@ def generate_temporal_and_category_charts(files_list, projects_list):
     #plot_area_category(master_df)
     plot_area_project(master_df)
 
+def get_cves_with_multiple_cwes(files_list, projects_list):
+    all_multi = []
+
+    for file_path, project in zip(files_list, projects_list):
+        df = load_cve_dataset(file_path)
+
+        df["cwes"] = df["weaknesses"].apply(extract_cwes_list)
+
+        df["num_cwes"] = df["cwes"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+
+        multi = df[df["num_cwes"] > 1][["id", "cwes"]].copy()
+        multi["project"] = project
+
+        all_multi.append(multi)
+
+    result = pd.concat(all_multi, ignore_index=True)
+
+    print("=== CVEs com múltiplos CWEs ===")
+    print(result)
+
+    print("\nTotal CVEs com >1 CWE:", len(result))
+
+    return result
+
 def main():
     #read_and_filter_csv(file_path, output_file_cwe_filter, 10)
     #mapping = get_cwe_mapping()
@@ -440,7 +468,10 @@ def main():
     
     #generate_top_10_chart_from_files(files, projects)
 
-    generate_temporal_and_category_charts(files, projects)
+    #generate_temporal_and_category_charts(files, projects)
+
+    multi_cves = get_cves_with_multiple_cwes(files, projects)
+    multi_cves.to_csv("data/data analysis/more_than_one_cwe.csv", index=False, encoding="utf-8")
 
 if __name__ == "__main__":
     main()

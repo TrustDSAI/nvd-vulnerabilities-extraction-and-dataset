@@ -17,7 +17,7 @@ API_URL          = os.getenv("API_URL", "")
 API_KEY          = os.getenv("API_KEY", "")
 KEYWORD_SEARCH   = "github"
 RESULTS_PER_PAGE = 2000
-OUTPUT_FILE      = "github.csv"
+OUTPUT_FILE      = "github_v2.csv"
 CPES = [
     "cpe:2.3:a:github:enterprise_server",
     "cpe:2.3:a:github:actions",
@@ -168,8 +168,8 @@ def main() -> None:
     vulnerabilities = fetch_from_api()
     rows = []
     for v in vulnerabilities:
-        #if any(verify_vulnerability_cpe(v, cpe) for cpe in CPES):
-        rows.append(extract_data(v))
+        if any(verify_vulnerability_cpe(v, cpe) for cpe in CPES):
+            rows.append(extract_data(v))
     write_csv(rows)
     #merge_csvs("tables/datasets/", "tables/datasets/cves_merged.csv")
 
