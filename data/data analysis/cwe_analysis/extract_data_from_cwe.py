@@ -208,6 +208,38 @@ def generate_top_10_chart_from_files(files_list, projects_list):
 
             sns.barplot(data=top_cwes, x="count", y="cwe", ax=ax, palette=bar_colors)
 
+            # NOVO CÓDIGO: Controlo manual da posição dos números
+            for p in ax.patches:
+                width = p.get_width() # O valor real (nº de vulnerabilidades)
+                
+                # Ignorar barras vazias ou valores nulos
+                if width == 0 or pd.isna(width):
+                    continue 
+                
+                # Se a barra ultrapassar o limite, o número fica "por cima" da barra (dentro do gráfico)
+                if width >= x_limit * 0.8:
+                    text_x = x_limit * 0.95  # Puxa o número ligeiramente para a esquerda da margem
+                    alinhamento = 'right'    # Alinha à direita para não cortar
+                    cor_texto = 'black'      # Branco lê-se melhor por cima da cor da barra
+                else:
+                    text_x = width + (x_limit * 0.02) # Posição normal (fora da barra)
+                    alinhamento = 'left'
+                    cor_texto = 'black'
+                
+                # Calcula o centro vertical da barra
+                y_pos = p.get_y() + (p.get_height() / 2) + p.get_height() * 0.1
+                
+                ax.text(
+                    x=text_x, 
+                    y=y_pos, 
+                    s=f'{int(width)}', 
+                    ha=alinhamento, 
+                    va='center', 
+                    fontsize=10, 
+                    color=cor_texto,
+                    fontweight='bold'
+                )
+
             # Apply the same X-axis limit to all subplots
             ax.set_xlim(0, x_limit)
 
@@ -286,28 +318,49 @@ def plot_heatmap_project_category(df: pd.DataFrame) -> None:
     _save(fig, "heatmap_project_category.png")
 
 def plot_area_category(df: pd.DataFrame) -> None:
-    pivot = (df.groupby(["year", "category"]).size().unstack(fill_value=0).sort_index())
+    df_plot = df.copy()
+
+    categorias_agrupar = ["System Configuration", "Output Encoding", "Error Handling", "File Management"]
+    novo_nome = "System Configuration + Output Encoding + Error Handling + File Management" # Podes alterar para o nome que preferires
+
+    df_plot.loc[df_plot["category"].isin(categorias_agrupar), "category"] = novo_nome
+
+    pivot = (df_plot.groupby(["year", "category"]).size().unstack(fill_value=0).sort_index())
+    
     fig, ax = plt.subplots(figsize=(14, 6))
     pivot.plot.area(ax=ax, colormap="tab10", alpha=0.85)
+    
     ax.set_title("Vulnerability Trends by Category (Stacked Area)", fontsize=14, fontweight="bold")
     ax.set_xlabel("Year")
     ax.set_ylabel("CVE Count")
     ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     ax.legend(title="Category", bbox_to_anchor=(1.01, 1), loc="upper left")
+    
     plt.tight_layout()
     _save(fig, "area_category.png")
 
 def plot_area_project(df: pd.DataFrame) -> None:
-    pivot = (df.groupby(["year", "project"]).size().unstack(fill_value=0).sort_index())
+    df_plot = df.copy()
+
+    projetos_agrupar = ["bamboo", "tekton", "travis_ci"]
+    novo_nome = "Others"
+
+    df_plot.loc[df_plot["project"].isin(projetos_agrupar), "project"] = novo_nome
+
+    pivot = (df_plot.groupby(["year", "project"]).size().unstack(fill_value=0).sort_index())
+    
     fig, ax = plt.subplots(figsize=(14, 6))
     pivot.plot.area(ax=ax, colormap="tab10", alpha=0.85)
+    
     ax.set_title("Vulnerability Trends by Project (Stacked Area)", fontsize=14, fontweight="bold")
     ax.set_xlabel("Year")
     ax.set_ylabel("CVE Count")
     ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     ax.legend(title="Project", bbox_to_anchor=(1.01, 1), loc="upper left")
+    
     plt.tight_layout()
-    _save(fig, "area_project.png")
+    
+    _save(fig, "area_project_grouped.png")
     
 def generate_temporal_and_category_charts(files_list, projects_list):
     mapping = get_cwe_mapping()
@@ -350,10 +403,10 @@ def generate_temporal_and_category_charts(files_list, projects_list):
     master_df["year"] = master_df["year"].astype(int)
 
     # Chamar os 5 gráficos
-    plot_heatmap_year_category(master_df)
-    plot_heatmap_year_project(master_df)
-    plot_heatmap_project_category(master_df)
-    plot_area_category(master_df)
+    #plot_heatmap_year_category(master_df)
+    #plot_heatmap_year_project(master_df)
+    #plot_heatmap_project_category(master_df)
+    #plot_area_category(master_df)
     plot_area_project(master_df)
 
 def main():
@@ -385,7 +438,7 @@ def main():
         "travis_ci"
     ]
     
-    generate_top_10_chart_from_files(files, projects)
+    #generate_top_10_chart_from_files(files, projects)
 
     generate_temporal_and_category_charts(files, projects)
 
