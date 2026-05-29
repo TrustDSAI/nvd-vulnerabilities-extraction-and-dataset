@@ -15,18 +15,14 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 # ── Constants ──────────────────────────────────────────────────────────────────
 API_URL          = os.getenv("API_URL", "")
 API_KEY          = os.getenv("API_KEY", "")
-KEYWORD_SEARCH   = "github"
+KEYWORD_SEARCH   = "codestar"
 RESULTS_PER_PAGE = 2000
-OUTPUT_FILE      = "github_v2.csv"
+OUTPUT_FILE      = "data/datasets/cves_full_codestar.csv"
 CPES = [
-    "cpe:2.3:a:github:enterprise_server",
-    "cpe:2.3:a:github:actions",
-    "cpe:2.3:a:github:cli",
-    "cpe:2.3:a:github:github",
+    "cpe:2.3:a:atlassian:bitbucket",
 ]
 LIST_FIELDS: list[str] = ["descriptions", "weaknesses", "configurations", "references", "cveTags"]
 DICT_FIELDS: list[str] = ["metrics"]
-
 
 def extract_data(vuln: dict[str, Any]) -> dict[str, Any]:
     """Flatten one raw vulnerability (JSON) entry into a CSV-friendly dict."""

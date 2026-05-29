@@ -267,7 +267,6 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     handles.append(plt.Rectangle((0, 0), 1, 1, color="lightgray", label="Others"))
 
     fig.legend(handles=handles, title="Projects", loc="upper right", bbox_to_anchor=(0.98, 0.98))
-    plt.suptitle("Top 10 CWEs per Project", fontsize=18, y=1.02)
 
     plt.tight_layout()
 
@@ -466,12 +465,12 @@ def main():
         "travis_ci"
     ]
     
-    #generate_top_10_chart_from_files(files, projects)
+    generate_top_10_chart_from_files(files, projects)
 
     #generate_temporal_and_category_charts(files, projects)
 
-    multi_cves = get_cves_with_multiple_cwes(files, projects)
-    multi_cves.to_csv("data/data analysis/more_than_one_cwe.csv", index=False, encoding="utf-8")
+    #multi_cves = get_cves_with_multiple_cwes(files, projects)
+    #multi_cves.to_csv("data/data analysis/more_than_one_cwe.csv", index=False, encoding="utf-8")
 
 if __name__ == "__main__":
     main()
