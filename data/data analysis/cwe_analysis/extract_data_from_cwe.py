@@ -266,7 +266,7 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     # Add "Others" to the global legend
     handles.append(plt.Rectangle((0, 0), 1, 1, color="lightgray", label="Others"))
 
-    fig.legend(handles=handles, title="Projects", loc="upper right", bbox_to_anchor=(0.98, 0.98))
+    fig.legend(handles=handles, title="Projects", loc="upper right", bbox_to_anchor=(1.1, 0.62))
 
     plt.tight_layout()
 

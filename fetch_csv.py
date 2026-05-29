@@ -126,7 +126,7 @@ def verify_vulnerability_cpe(vuln, target_cpe):
 
 def merge_csvs(input_folder: str, output_file: str) -> None:
     """
-    Junta todos os CSVs de uma pasta num único ficheiro CSV.
+    Merges all csv files into one
     """
 
     csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
@@ -167,7 +167,7 @@ def main() -> None:
         if any(verify_vulnerability_cpe(v, cpe) for cpe in CPES):
             rows.append(extract_data(v))
     write_csv(rows)
-    #merge_csvs("tables/datasets/", "tables/datasets/cves_merged.csv")
+    merge_csvs("tables/datasets/", "tables/datasets/cves_merged.csv")
 
 
 if __name__ == "__main__":
