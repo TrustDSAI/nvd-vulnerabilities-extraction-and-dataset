@@ -2,6 +2,7 @@ project,2.0,3.0,3.1
 argo_cd,0,0,48
 azure_devops,0,14,24
 bamboo,0,15,9
+bitbucket,0,9,15
 github,1,1,129
 gitlab,7,120,1202
 jenkins,51,67,136

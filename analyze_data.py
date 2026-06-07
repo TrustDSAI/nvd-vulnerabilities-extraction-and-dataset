@@ -5,7 +5,7 @@ import csv
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-OUTPUT_DIR = "data"
+OUTPUT_DIR = "data/data analysis"
 
 # ─────────────────────────────────────────────
 # 0. SETUP
@@ -20,21 +20,23 @@ def setup():
 # ─────────────────────────────────────────────
 def load_data():
     files = [
-        "tables/datasets/cves_full_argo_cd.csv",
-        "tables/datasets/cves_full_azure_devops.csv",
-        "tables/datasets/cves_full_bamboo.csv",
-        "tables/datasets/cves_full_github.csv",
-        "tables/datasets/cves_full_gitlab.csv",
-        "tables/datasets/cves_full_jenkins.csv",
-        "tables/datasets/cves_full_teamcity.csv",
-        "tables/datasets/cves_full_tekton.csv",
-        "tables/datasets/cves_full_travis_ci.csv"
+        "data/datasets/cves_full_argo_cd.csv",
+        "data/datasets/cves_full_azure_devops.csv",
+        "data/datasets/cves_full_bamboo.csv",
+        "data/datasets/cves_full_bitbucket.csv",
+        "data/datasets/cves_full_github.csv",
+        "data/datasets/cves_full_gitlab.csv",
+        "data/datasets/cves_full_jenkins.csv",
+        "data/datasets/cves_full_teamcity.csv",
+        "data/datasets/cves_full_tekton.csv",
+        "data/datasets/cves_full_travis_ci.csv"
     ]
 
     projects = [
         "argo_cd",
         "azure_devops",
         "bamboo",
+        "bitbucket",
         "github",
         "gitlab",
         "jenkins",
@@ -52,6 +54,14 @@ def load_data():
 
     return pd.concat(dfs, ignore_index=True)
 
+def save_data(output_path="data/datasets/cves_merged.csv"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    df = load_data()
+    
+    df.to_csv(output_path, index=False)
+    
+    print(f"Dataset saved to: {output_path}")
 
 # ─────────────────────────────────────────────
 # 2. FEATURE ENGINEERING
@@ -189,13 +199,13 @@ def generate_plots(pivot_year, cwe_counts, df):
 
     plt.figure(figsize=(10, 6))
     plot_year_df.plot(marker='o')
-    plt.savefig("tables/evolution_plot.png")
+    plt.savefig("data/data analysis/evolution_plot.png")
     plt.show()
 
     # Top CWEs
     plt.figure(figsize=(10, 6))
     sns.barplot(data=cwe_counts.head(10), x='count', y='cwes', hue='project')
-    plt.savefig("tables/top_cwes_bar.png")
+    plt.savefig("data/data analysis/top_cwes_bar.png")
     plt.show()
 
     # CVSS
@@ -207,7 +217,7 @@ def generate_plots(pivot_year, cwe_counts, df):
         hue='project'
     )
     plt.ylim(0, 10)
-    plt.savefig("tables/cvss_boxplot.png")
+    plt.savefig("data/data analysis/cvss_boxplot.png")
     plt.show()
 
 
@@ -217,6 +227,7 @@ def generate_plots(pivot_year, cwe_counts, df):
 def main():
     setup()
 
+    #save_data()
     df = load_data()
     df = feature_engineering(df)
 

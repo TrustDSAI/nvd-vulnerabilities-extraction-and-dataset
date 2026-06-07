@@ -125,6 +125,345 @@ def count_per_category(file_path, output_file, mapping):
     
     print(f"File {output_file} saved!")
 
+def calculate_global_cwe_counts_with_report(input_csv_path, output_csv_path):
+    print(f"\n--- Calculating global CWE totals and reporting low-frequency items ---")
+    
+    cwe_totals = defaultdict(int)
+    exclude_noise = ["NVD-CWE-noinfo", "NVD-CWE-Other"]
+    
+    # 1. Read the CSV and aggregate
+    try:
+        with open(input_csv_path, mode='r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                if row['project'] == 'Total':
+                    continue
+                
+                cwe = row['cwes']
+                count = int(row['count'])
+                cwe_totals[cwe] += count
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return
+
+    # 2. Separate into ">= 10" and "< 10" (excluding noise)
+    high_freq = {}
+    less_than_10_count = 0
+    less_than_10_names = []
+
+    for cwe, total in cwe_totals.items():
+        if total >= 10:
+            high_freq[cwe] = total
+        elif cwe not in exclude_noise:
+            less_than_10_count += total
+            less_than_10_names.append(cwe)
+
+    # 3. Print the requested report
+    print(f"\n--- Statistics for CWEs with < 10 occurrences ---")
+    print(f"Total occurrences (excluding noise): {less_than_10_count}")
+    print(f"Number of distinct CWE types found with < 10 occurrences: {len(less_than_10_names)}")
+    print(f"Types found: {', '.join(less_than_10_names)}")
+
+    # 4. Save ALL results to CSV
+    sorted_all = sorted(cwe_totals.items(), key=lambda x: x[1], reverse=True)
+
+    try:
+        os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+        with open(output_csv_path, mode='w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['cwe', 'total_count'])
+            writer.writerows(sorted_all)
+            total_sum = sum(cwe_totals.values())
+            writer.writerow(['Total', total_sum])
+
+        print(f"\nSuccess! Full CWE totals saved to: {output_csv_path}")
+    except Exception as e:
+        print(f"Error saving file: {e}")
+        
+def count_cves_per_category_and_export_conflicts(files_list, projects_list, output_conflicts_csv, output_summary_csv):
+    """
+    Counts unique CVEs per category ONLY for CVEs with CWEs from a single category.
+    
+    Rules:
+    1. Pure CVE: All CWEs mapped and belong to the SAME category -> counts for that category
+    2. Conflict CVE: All CWEs mapped but belong to DIFFERENT categories -> goes to conflicts CSV
+    3. Unmapped CVE: At least one CWE not in mapping -> goes to unmapped CSV (does NOT count for any category)
+    4. Excluded-only CVE: Only NVD-CWE-noinfo and/or NVD-CWE-Other -> goes to excluded CSV
+    
+    Args:
+        files_list: List of paths to CSV files containing CVE data
+        projects_list: List of project names corresponding to each file
+        output_conflicts_csv: Path where conflicts CSV will be saved
+        output_summary_csv: Path where category summary CSV will be saved
+    
+    Returns:
+        tuple: (category_cves dict, conflict_cves list, unmapped_cves list, excluded_only_cves list)
+    """
+    
+    # Get CWE to category mapping
+    mapping = get_cwe_mapping()
+    
+    # CWEs to exclude from analysis (treated separately)
+    exclude_cwes = ["NVD-CWE-Other", "NVD-CWE-noinfo"]
+    
+    # Dictionary to count CVEs per category (only "pure" CVEs - Case 1)
+    category_cves = defaultdict(list)
+    
+    # Lists for different CVE categories
+    conflict_cves = []      # Case 2: mapped but different categories
+    unmapped_cves = []      # Case 3: at least one unmapped CWE
+    excluded_only_cves = [] # Case 4: only excluded CWEs
+    
+    # Statistics counters
+    total_cves_processed = 0
+    total_pure_cves = 0
+    total_conflict_cves = 0
+    total_unmapped_cves = 0
+    total_excluded_only_cves = 0
+    
+    # Counters for unmapped and excluded CWE occurrences
+    unmapped_cwe_count = 0
+    unmapped_cwe_set = set()
+    noinfo_count = 0
+    other_count = 0
+    
+    # Process each project's data
+    for file_path, project_name in zip(files_list, projects_list):
+        try:
+            df = load_cve_dataset(file_path)
+        except Exception as e:
+            print(f"Error loading {file_path}: {e}")
+            continue
+        
+        # Extract list of CWEs for each CVE
+        df["cwes"] = df["weaknesses"].apply(extract_cwes_list)
+        
+        # Identify the CVE ID column name
+        id_col = next((col for col in ["cveId", "id", "cve_id", "CVE_ID"] if col in df.columns), None)
+        
+        if not id_col:
+            print(f"Warning: No CVE ID column found in {project_name}")
+            continue
+        
+        # Iterate through each CVE in the dataset
+        for _, row in df.iterrows():
+            cve_id = str(row[id_col]) if pd.notna(row[id_col]) else None
+            if not cve_id:
+                continue
+            
+            cwe_list = row["cwes"]
+            
+            total_cves_processed += 1
+            
+            # Count NVD-CWE-noinfo and NVD-CWE-Other occurrences
+            for cwe in cwe_list:
+                if cwe == "NVD-CWE-noinfo":
+                    noinfo_count += 1
+                elif cwe == "NVD-CWE-Other":
+                    other_count += 1
+            
+            # Classify each CWE
+            has_excluded_only = True
+            has_mapped_cwe = False
+            has_unmapped_cwe = False
+            categories_for_cve = set()
+            unmapped_cwes_in_cve = []
+            mapped_cwes_in_cve = []
+            excluded_cwes_in_cve = []
+            
+            for cwe in cwe_list:
+                if cwe in exclude_cwes:
+                    excluded_cwes_in_cve.append(cwe)
+                    continue  # Skip excluded CWEs for category analysis
+                
+                has_excluded_only = False  # Found a non-excluded CWE
+                
+                # Get category for this CWE
+                category = get_cwe_category(cwe, mapping)
+                
+                if category == "Unmapped":
+                    has_unmapped_cwe = True
+                    unmapped_cwes_in_cve.append(cwe)
+                    unmapped_cwe_count += 1
+                    unmapped_cwe_set.add(cwe)
+                elif category != "Invalid format!":
+                    has_mapped_cwe = True
+                    mapped_cwes_in_cve.append(cwe)
+                    categories_for_cve.add(category)
+                # Invalid format is ignored (should not happen with valid data)
+            
+            # CASE 4: Only excluded CWEs (NVD-CWE-noinfo / NVD-CWE-Other)
+            if has_excluded_only and not has_mapped_cwe and not has_unmapped_cwe:
+                total_excluded_only_cves += 1
+                excluded_only_cves.append({
+                    "project": project_name,
+                    "cve_id": cve_id,
+                    "cwes": ", ".join(cwe_list) if cwe_list else "No CWEs"
+                })
+                continue
+            
+            # CASE 3: At least one unmapped CWE (regardless of mapped ones)
+            if has_unmapped_cwe:
+                total_unmapped_cves += 1
+                cwes_str = ", ".join(cwe_list)
+                mapped_str = ", ".join(mapped_cwes_in_cve) if mapped_cwes_in_cve else "None"
+                unmapped_str = ", ".join(unmapped_cwes_in_cve)
+                categories_str = ", ".join(sorted(categories_for_cve)) if categories_for_cve else "None"
+                
+                unmapped_cves.append({
+                    "project": project_name,
+                    "cve_id": cve_id,
+                    "all_cwes": cwes_str,
+                    "mapped_cwes": mapped_str,
+                    "unmapped_cwes": unmapped_str,
+                    "categories_found": categories_str
+                })
+                continue
+            
+            # CASE 1 & 2: All CWEs are mapped (no unmapped, no excluded-only)
+            if has_mapped_cwe:
+                if len(categories_for_cve) == 1:
+                    # CASE 1: Pure CVE - single category
+                    total_pure_cves += 1
+                    category = next(iter(categories_for_cve))
+                    category_cves[category].append(cve_id)
+                else:
+                    # CASE 2: Conflict CVE - multiple categories
+                    total_conflict_cves += 1
+                    cwes_str = ", ".join(mapped_cwes_in_cve)
+                    categories_str = ", ".join(sorted(categories_for_cve))
+                    
+                    conflict_cves.append({
+                        "project": project_name,
+                        "cve_id": cve_id,
+                        "cwes": cwes_str,
+                        "categories": categories_str,
+                        "num_categories": len(categories_for_cve)
+                    })
+    
+    # Print statistics to console
+    print(f"\n{'='*70}")
+    print(f"CATEGORY COUNTING STATISTICS (By CVE Classification)")
+    print(f"{'='*70}")
+    
+    print(f"\n--- CVE Processing Summary ---")
+    print(f"Total CVEs processed: {total_cves_processed}")
+    print(f"\n  CASE 1 - Pure CVEs (mapped, single category): {total_pure_cves}")
+    print(f"  CASE 2 - Conflict CVEs (mapped, multiple categories): {total_conflict_cves}")
+    print(f"  CASE 3 - Unmapped CVEs (at least one unmapped CWE): {total_unmapped_cves}")
+    print(f"  CASE 4 - Excluded-only CVEs (only NVD-CWE-noinfo/Other): {total_excluded_only_cves}")
+    
+    # Verification
+    calculated_total = total_pure_cves + total_conflict_cves + total_unmapped_cves + total_excluded_only_cves
+    if calculated_total != total_cves_processed:
+        print(f"\n⚠️ WARNING: Sum mismatch! {calculated_total} vs {total_cves_processed}")
+    else:
+        print(f"\n✓ Sum verification: {calculated_total} = {total_cves_processed}")
+    
+    if total_cves_processed > 0:
+        print(f"\n--- Percentages ---")
+        print(f"  Pure CVEs: {total_pure_cves/total_cves_processed*100:.2f}%")
+        print(f"  Conflict CVEs: {total_conflict_cves/total_cves_processed*100:.2f}%")
+        print(f"  Unmapped CVEs: {total_unmapped_cves/total_cves_processed*100:.2f}%")
+        print(f"  Excluded-only CVEs: {total_excluded_only_cves/total_cves_processed*100:.2f}%")
+    
+    # Print unmapped CWE statistics
+    print(f"\n--- Unmapped CWE Statistics ---")
+    print(f"Unmapped CWE occurrences: {unmapped_cwe_count}")
+    print(f"Unique unmapped CWE types: {len(unmapped_cwe_set)}")
+    if unmapped_cwe_set:
+        print(f"Unmapped CWE types: {', '.join(sorted(unmapped_cwe_set))}")
+    
+    # Print excluded CWE statistics
+    print(f"\n--- Excluded CWE Statistics ---")
+    print(f"NVD-CWE-noinfo occurrences: {noinfo_count}")
+    print(f"NVD-CWE-Other occurrences: {other_count}")
+    print(f"Total excluded occurrences: {noinfo_count + other_count}")
+    
+    # Export all CSV files
+    os.makedirs(os.path.dirname(output_conflicts_csv), exist_ok=True)
+    
+    # 1. Export conflicts CSV (Case 2)
+    if conflict_cves:
+        conflicts_path = output_conflicts_csv
+        with open(conflicts_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=["project", "cve_id", "cwes", "categories", "num_categories"])
+            writer.writeheader()
+            writer.writerows(conflict_cves)
+        print(f"\n--- File Output ---")
+        print(f"Conflicts file (Case 2): {conflicts_path}")
+        print(f"  Total conflicts: {len(conflict_cves)}")
+    
+    # 2. Export unmapped CVEs CSV (Case 3)
+    if unmapped_cves:
+        unmapped_path = output_conflicts_csv.replace(".csv", "_unmapped_cves.csv")
+        with open(unmapped_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=["project", "cve_id", "all_cwes", "mapped_cwes", "unmapped_cwes", "categories_found"])
+            writer.writeheader()
+            writer.writerows(unmapped_cves)
+        print(f"Unmapped CVEs file (Case 3): {unmapped_path}")
+        print(f"  Total unmapped CVEs: {len(unmapped_cves)}")
+    
+    # 3. Export excluded-only CVEs CSV (Case 4)
+    if excluded_only_cves:
+        excluded_path = output_conflicts_csv.replace(".csv", "_excluded_only.csv")
+        with open(excluded_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=["project", "cve_id", "cwes"])
+            writer.writeheader()
+            writer.writerows(excluded_only_cves)
+        print(f"Excluded-only CVEs file (Case 4): {excluded_path}")
+        print(f"  Total excluded-only CVEs: {len(excluded_only_cves)}")
+    
+    # 4. Export category summary (Case 1 only)
+    export_category_summary(category_cves, output_summary_csv, total_pure_cves)
+    
+    return category_cves, conflict_cves, unmapped_cves, excluded_only_cves
+
+
+def export_category_summary(category_cves, output_csv_path, total_cves):
+    """
+    Exports the summary of CVEs per category to a CSV file.
+    Includes the total count of pure CVEs at the bottom.
+    
+    Args:
+        category_cves: Dictionary mapping category names to sets of CVE IDs
+        output_csv_path: Path where the summary CSV will be saved
+        total_cves: Total number of pure CVEs (for percentage calculation)
+    """
+    
+    # Sort categories by number of CVEs (descending)
+    sorted_categories = sorted(category_cves.items(), key=lambda x: len(x[1]), reverse=True)
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+    
+    # Write to CSV file
+    with open(output_csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        
+        # Write header
+        writer.writerow(['Category', 'unique_cves', 'percentage'])
+        
+        # Write data for each category
+        for category, cve_set in sorted_categories:
+            count = len(cve_set)
+            percentage = (count / total_cves * 100) if total_cves > 0 else 0
+            writer.writerow([category, count, f"{percentage:.2f}%"])
+        
+        # Write total row
+        writer.writerow(['TOTAL', total_cves, '100%'])
+    
+    print(f"\nCategory summary saved to: {output_csv_path}")
+    print(f"Total pure CVEs (Case 1): {total_cves}")
+    
+    # Also print summary to console
+    if total_cves > 0:
+        print(f"\n--- Category Summary (Pure CVEs Only - Case 1) ---")
+        for category, cve_set in sorted_categories:
+            count = len(cve_set)
+            percentage = (count / total_cves * 100) if total_cves > 0 else 0
+            print(f"  {category}: {count} CVEs ({percentage:.2f}%)")
+
 ##################
 # Mapeia os CWE's em categorias, para não termos de trabalhar com tantos.
 ##################
@@ -141,10 +480,11 @@ def extract_cwes_list(weaknesses):
 def generate_top_10_chart_from_files(files_list, projects_list):
     # 1. Load and concatenate all datasets dynamically
     dfs = []
-    excluded = ["tekton", "travis_ci", "bamboo"]
+    excluded = ["tekton", "travis_ci", "bamboo", "bitbucket"]
     for file_path, project_name in zip(files_list, projects_list):
         if project_name not in excluded:
             try:
+                # Assuming load_cve_dataset is defined elsewhere
                 df_temp = load_cve_dataset(file_path)
                 df_temp["project"] = project_name
                 dfs.append(df_temp)
@@ -159,6 +499,7 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     df = pd.concat(dfs, ignore_index=True)
 
     # Extract CWEs and explode the lists
+    # Assuming extract_cwes_list is defined elsewhere
     df["cwes"] = df["weaknesses"].apply(extract_cwes_list)
     exploded = df.explode("cwes")
 
@@ -169,15 +510,17 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     # Find global maximum count to standardize the X-axis
     max_x_count = 0
     for project_name in projects_list:
-        proj_counts = clean_df[clean_df["project"] == project_name]["cwes"].value_counts().head(10) - len(excluded)
-        if not proj_counts.empty:
-            max_x_count = max(max_x_count, proj_counts.max())
+        if project_name not in excluded:
+            proj_counts = clean_df[clean_df["project"] == project_name]["cwes"].value_counts().head(10)
+            if not proj_counts.empty:
+                max_x_count = max(max_x_count, proj_counts.max())
 
     # Add a 5% padding so the largest bar doesn't touch the edge of the plot
     x_limit = max_x_count * 1.05
 
     # 2. Configure the subplot grid
-    num_projects = len(projects_list) - len(excluded)
+    # Safely count only the included projects
+    num_projects = len([p for p in projects_list if p not in excluded]) 
     cols = 3
     rows = (num_projects + cols - 1) // cols
 
@@ -188,12 +531,12 @@ def generate_top_10_chart_from_files(files_list, projects_list):
     palette = sns.color_palette("tab10", n_colors=num_projects)
     handles = []
     plot_idx = 0
+    
     # 3. Iterate over each project and plot its bar chart
-    for i, project_name in enumerate(projects_list):
+    for project_name in projects_list:
         if project_name not in excluded:
             ax = axes[plot_idx]
             color = palette[plot_idx]
-            plot_idx += 1
 
             proj_data = clean_df[clean_df["project"] == project_name]
             cwe_counts = proj_data["cwes"].value_counts()
@@ -207,60 +550,56 @@ def generate_top_10_chart_from_files(files_list, projects_list):
                     others_row = pd.DataFrame([{"cwe": "Others", "count": others_count}])
                     top_cwes = pd.concat([top_cwes, others_row], ignore_index=True)
 
-                # Use a distinct colour for the "Others" bar
+                # Use a distinct color for the "Others" bar
                 bar_colors = [color] * (len(top_cwes) - 1) + ["lightgray"]
 
                 sns.barplot(data=top_cwes, x="count", y="cwe", ax=ax, palette=bar_colors)
 
-                # NOVO CÓDIGO: Controlo manual da posição dos números
+                # Manual control of number placement
                 for p in ax.patches:
-                    width = p.get_width() # O valor real (nº de vulnerabilidades)
+                    width = p.get_width()
                     
-                    # Ignorar barras vazias ou valores nulos
                     if width == 0 or pd.isna(width):
                         continue 
                     
-                    # Se a barra ultrapassar o limite, o número fica "por cima" da barra (dentro do gráfico)
                     if width >= x_limit * 0.8:
-                        text_x = x_limit * 0.95  # Puxa o número ligeiramente para a esquerda da margem
-                        alinhamento = 'right'    # Alinha à direita para não cortar
-                        cor_texto = 'black'      # Branco lê-se melhor por cima da cor da barra
+                        text_x = x_limit * 0.95 
+                        alignment = 'right'    
+                        text_color = 'black'     
                     else:
-                        text_x = width + (x_limit * 0.02) # Posição normal (fora da barra)
-                        alinhamento = 'left'
-                        cor_texto = 'black'
+                        text_x = width + (x_limit * 0.02)
+                        alignment = 'left'
+                        text_color = 'black'
                     
-                    # Calcula o centro vertical da barra
                     y_pos = p.get_y() + (p.get_height() / 2) + p.get_height() * 0.1
                     
                     ax.text(
                         x=text_x, 
                         y=y_pos, 
                         s=f'{int(width)}', 
-                        ha=alinhamento, 
+                        ha=alignment, 
                         va='center', 
                         fontsize=10, 
-                        color=cor_texto,
+                        color=text_color,
                         fontweight='bold'
                     )
 
-                # Apply the same X-axis limit to all subplots
-                ax.set_xlim(0, x_limit)
-
-                ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
-                ax.set_xlabel("Occurrences")
-                ax.set_ylabel("")
             else:
                 ax.text(0.5, 0.5, "No Data / No CWEs Mapped",
                         horizontalalignment="center", verticalalignment="center",
                         transform=ax.transAxes, color="gray")
-                ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
-                ax.set_xlim(0, x_limit)
 
+            # Apply limits and titles
+            ax.set_xlim(0, x_limit)
+            ax.set_title(f"Top 10 CWEs: {project_name}", fontsize=14, fontweight="bold")
+            ax.set_xlabel("Occurrences")
+            ax.set_ylabel("")
+            
             handles.append(plt.Rectangle((0, 0), 1, 1, color=color, label=project_name))
+            plot_idx += 1
 
-    # Hide empty subplots
-    for j in range(i + 1, len(axes)):
+    # Hide any remaining empty subplots using the actual plot count
+    for j in range(plot_idx, len(axes)):
         fig.delaxes(axes[j])
 
     # Add "Others" to the global legend
@@ -270,7 +609,7 @@ def generate_top_10_chart_from_files(files_list, projects_list):
 
     plt.tight_layout()
 
-    output_path = "data/data analysis/top_10_comparison.png"
+    output_path = "data/data analysis/top_10_comparison.pdf"
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, bbox_inches="tight")
     print(f"Graphic saved to: {output_path}")
@@ -324,7 +663,7 @@ def plot_area_category(df: pd.DataFrame) -> None:
     df_plot = df.copy()
 
     categorias_agrupar = ["System Configuration", "Output Encoding", "Error Handling", "File Management"]
-    novo_nome = "System Configuration + Output Encoding + Error Handling + File Management" # Podes alterar para o nome que preferires
+    novo_nome = "Others"
 
     df_plot.loc[df_plot["category"].isin(categorias_agrupar), "category"] = novo_nome
 
@@ -340,7 +679,7 @@ def plot_area_category(df: pd.DataFrame) -> None:
     ax.legend(title="Category", bbox_to_anchor=(1.01, 1), loc="upper left")
     
     plt.tight_layout()
-    _save(fig, "area_category.png")
+    _save(fig, "area_category.pdf")
 
 def plot_area_project(df: pd.DataFrame) -> None:
     df_plot = df.copy()
@@ -363,7 +702,7 @@ def plot_area_project(df: pd.DataFrame) -> None:
     
     plt.tight_layout()
     
-    _save(fig, "area_project_grouped.png")
+    _save(fig, "area_project_grouped.pdf")
     
 def generate_temporal_and_category_charts(files_list, projects_list):
     mapping = get_cwe_mapping()
@@ -406,35 +745,76 @@ def generate_temporal_and_category_charts(files_list, projects_list):
     master_df["year"] = master_df["year"].astype(int)
 
     # Chamar os 5 gráficos
-    #plot_heatmap_year_category(master_df)
-    #plot_heatmap_year_project(master_df)
-    #plot_heatmap_project_category(master_df)
-    #plot_area_category(master_df)
+    plot_heatmap_year_category(master_df)
+    plot_heatmap_year_project(master_df)
+    plot_heatmap_project_category(master_df)
+    plot_area_category(master_df)
     plot_area_project(master_df)
 
-def get_cves_with_multiple_cwes(files_list, projects_list):
-    all_multi = []
+def export_cves_with_multiple_categories(files_list, projects_list, output_csv_path):
+    print(f"\n--- Exporting CVEs with multiple categories to {output_csv_path} ---")
+    mapping = get_cwe_mapping()
+    exclude_cwes = ["NVD-CWE-noinfo", "NVD-CWE-Other"]
+    
+    # List to store the rows that will be written to the CSV
+    csv_rows = []
 
-    for file_path, project in zip(files_list, projects_list):
-        df = load_cve_dataset(file_path)
+    for file_path, project_name in zip(files_list, projects_list):
+        try:
+            df = load_cve_dataset(file_path)
+        except Exception as e:
+            print(f"Error loading {file_path}: {e}")
+            continue
 
+        # 1. Extract the list of CWEs
         df["cwes"] = df["weaknesses"].apply(extract_cwes_list)
+        
+        # 2. Map unique categories
+        def get_unique_categories(cwe_list):
+            categories = set()
+            for cwe in cwe_list:
+                if cwe in exclude_cwes:
+                    continue
+                cat = get_cwe_category(cwe, mapping)
+                if cat not in ["Invalid format!", "Unmapped"]:
+                    categories.add(cat)
+            return list(categories)
 
-        df["num_cwes"] = df["cwes"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+        df["unique_categories"] = df["cwes"].apply(get_unique_categories)
+        df["category_count"] = df["unique_categories"].apply(len)
 
-        multi = df[df["num_cwes"] > 1][["id", "cwes"]].copy()
-        multi["project"] = project
+        # 3. Filter CVEs with multiple categories
+        multiple_cats_df = df[df["category_count"] > 1]
+        
+        if not multiple_cats_df.empty:
+            # Try to dynamically discover the CVE ID column name
+            id_col = next((col for col in ["cveId", "id", "cve_id", "CVE_ID"] if col in df.columns), None)
+            
+            # 4. Prepare data for the CSV
+            for _, row in multiple_cats_df.iterrows():
+                # Safely extract the ID
+                cve_id = str(row[id_col]) if id_col and pd.notna(row[id_col]) else "Unknown_ID"
+                
+                # Convert lists to strings (filtering excluded CWEs)
+                cwes_str = ", ".join([cwe for cwe in row["cwes"] if cwe not in exclude_cwes])
+                cats_str = ", ".join(row["unique_categories"])
+                
+                # Add the record to the list
+                csv_rows.append([project_name, cve_id, cwes_str, cats_str])
 
-        all_multi.append(multi)
-
-    result = pd.concat(all_multi, ignore_index=True)
-
-    print("=== CVEs com múltiplos CWEs ===")
-    print(result)
-
-    print("\nTotal CVEs com >1 CWE:", len(result))
-
-    return result
+    # 5. Write to the CSV file
+    try:
+        os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+        
+        with open(output_csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            # Write the header
+            writer.writerow(["project", "cve_id", "cwes", "categories"])
+            writer.writerows(csv_rows)
+            
+        print(f"Success! {len(csv_rows)} records were saved to the file: {output_csv_path}")
+    except Exception as e:
+        print(f"Error saving the CSV file: {e}")
 
 def main():
     #read_and_filter_csv(file_path, output_file_cwe_filter, 10)
@@ -445,6 +825,7 @@ def main():
         "data/datasets/cves_full_argo_cd.csv",
         "data/datasets/cves_full_azure_devops.csv",
         "data/datasets/cves_full_bamboo.csv",
+        "data/datasets/cves_full_bitbucket.csv",
         "data/datasets/cves_full_github.csv",
         "data/datasets/cves_full_gitlab.csv",
         "data/datasets/cves_full_jenkins.csv",
@@ -457,6 +838,7 @@ def main():
         "argo_cd",
         "azure_devops",
         "bamboo",
+        "bitbucket",
         "github",
         "gitlab",
         "jenkins",
@@ -465,12 +847,21 @@ def main():
         "travis_ci"
     ]
     
-    generate_top_10_chart_from_files(files, projects)
+    #generate_top_10_chart_from_files(files, projects)
 
     #generate_temporal_and_category_charts(files, projects)
 
-    #multi_cves = get_cves_with_multiple_cwes(files, projects)
-    #multi_cves.to_csv("data/data analysis/more_than_one_cwe.csv", index=False, encoding="utf-8")
+    cwe_per_project_csv = "data/data analysis/cwe_analysis/cwe_counts.csv"
+    cwe_totals_csv = "data/data analysis/cwe_analysis/cwe_total_global.csv"
+    
+    #calculate_global_cwe_counts_with_report(cwe_per_project_csv, cwe_totals_csv)
 
+    #export_cves_with_multiple_categories(files, projects, "data/data analysis/multiple_categories_cves.csv")
+    category_cves, conflict_cves, unmapped_cves, excluded_only_cves = count_cves_per_category_and_export_conflicts(
+        files, 
+        projects, 
+        "data/data analysis/cve_category_conflicts.csv",
+        "data/data analysis/cve_category_summary.csv"
+    )
 if __name__ == "__main__":
     main()
