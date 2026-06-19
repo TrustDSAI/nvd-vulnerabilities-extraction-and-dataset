@@ -4,6 +4,7 @@ import os
 import csv
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
 
 OUTPUT_DIR = "data/data analysis"
 
@@ -220,6 +221,123 @@ def generate_plots(pivot_year, cwe_counts, df):
     plt.savefig("data/data analysis/cvss_boxplot.png")
     plt.show()
 
+# ─────────────────────────────────────────────
+# EXTRA: COMMIT ANALYSIS
+# ─────────────────────────────────────────────
+def extract_commits(refs):
+    """
+    Extrai URLs únicos de commits a partir das referências de um CVE.
+    """
+    commits = set()
+    
+    # Se a referência vier como string (JSON), tenta convertê-la para lista
+    if isinstance(refs, str):
+        try:
+            refs = json.loads(refs)
+        except json.JSONDecodeError:
+            return commits
+
+    # Verifica se as referências são uma lista válida após a conversão
+    if not isinstance(refs, list):
+        return commits
+        
+    for ref in refs:
+        url = ""
+        if isinstance(ref, dict):
+            url = ref.get("url", "")
+        elif isinstance(ref, str):
+            url = ref
+            
+        # Verifica se é um link de commit
+        if url and "/commit/" in url:
+            commits.add(url.strip())
+            
+    return commits
+
+
+def analyze_commits_per_project(df):
+    """
+    Analisa as referências para contar os commits únicos por projeto,
+    detalhando a distribuição do número de commits por CVE e adicionando
+    uma linha de total.
+    """
+    results = []
+    
+    # Agrupa por projeto para fazer a contagem
+    for project, group in df.groupby("project"):
+        total_cves = len(group)
+        
+        # Contadores para as novas colunas
+        cves_sem_commit = 0
+        cves_um_commit = 0
+        cves_multiplos_commits = 0
+        
+        unique_commits_total = set()
+        
+        for refs in group["references"]:
+            # Extrai os commits deste CVE específico
+            commits_in_cve = extract_commits(refs)
+            num_commits_in_cve = len(commits_in_cve)
+            
+            # Distribui pelas novas categorias
+            if num_commits_in_cve == 0:
+                cves_sem_commit += 1
+            elif num_commits_in_cve == 1:
+                cves_um_commit += 1
+            else:
+                cves_multiplos_commits += 1
+                
+            # Adiciona os commits ao total do projeto
+            unique_commits_total.update(commits_in_cve)
+            
+        num_unique_commits = len(unique_commits_total)
+        
+        # Calcula a percentagem (Unique Commits / Total CVEs)
+        percentage = (num_unique_commits / total_cves * 100) if total_cves > 0 else 0
+        
+        results.append({
+            "Project": project,
+            "Total CVEs": total_cves,
+            "Unique Commits": num_unique_commits,
+            "Commit %": round(percentage, 2),
+            "CVEs s/ Commit": cves_sem_commit,
+            "CVEs c/ 1 Commit": cves_um_commit,
+            "CVEs c/ >1 Commit": cves_multiplos_commits
+        })
+
+    # Converte os resultados num DataFrame
+    df_commits = pd.DataFrame(results)
+    
+    # Ordena pelo número de commits únicos em ordem decrescente
+    df_commits = df_commits.sort_values(by="Unique Commits", ascending=False)
+    
+    # --- LÓGICA DA LINHA DE TOTAL ---
+    total_cves_all = df_commits["Total CVEs"].sum()
+    total_commits_all = df_commits["Unique Commits"].sum()
+    total_percent = (total_commits_all / total_cves_all * 100) if total_cves_all > 0 else 0
+    
+    total_row = pd.DataFrame([{
+        "Project": "Total",
+        "Total CVEs": total_cves_all,
+        "Unique Commits": total_commits_all,
+        "Commit %": round(total_percent, 2),
+        "CVEs s/ Commit": df_commits["CVEs s/ Commit"].sum(),
+        "CVEs c/ 1 Commit": df_commits["CVEs c/ 1 Commit"].sum(),
+        "CVEs c/ >1 Commit": df_commits["CVEs c/ >1 Commit"].sum()
+    }])
+    
+    # Anexa a linha de total ao DataFrame existente
+    df_commits = pd.concat([df_commits, total_row], ignore_index=True)
+    
+    # Guarda o resultado num ficheiro CSV
+    output_path = f"{OUTPUT_DIR}/commits_per_project.csv"
+    df_commits.to_csv(output_path, index=False)
+    
+    print("\n--- Análise de Commits por Projeto ---")
+    print(df_commits.to_string(index=False))
+    print(f"\nResultados guardados em: {output_path}\n")
+    
+    return df_commits
 
 # ─────────────────────────────────────────────
 # MAIN
@@ -231,12 +349,14 @@ def main():
     df = load_data()
     df = feature_engineering(df)
 
-    exploded, pivot_cwe, pivot_year, cwe_counts = create_analysis_tables(df)
+    df_commits = analyze_commits_per_project(df)
 
-    cvss_analysis(df)
-    save_tables(df, pivot_cwe, pivot_year, cwe_counts)
+    #exploded, pivot_cwe, pivot_year, cwe_counts = create_analysis_tables(df)
 
-    generate_plots(pivot_year, cwe_counts, df)
+    #cvss_analysis(df)
+    #save_tables(df, pivot_cwe, pivot_year, cwe_counts)
+
+    #generate_plots(pivot_year, cwe_counts, df)
 
 
 if __name__ == "__main__":
