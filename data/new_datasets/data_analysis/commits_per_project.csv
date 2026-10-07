@@ -1,0 +1,12 @@
+Project,Total CVEs,Unique Commits,Commit %,CVEs s/ Commit,CVEs c/ 1 Commit,CVEs c/ >1 Commit
+argo_cd,54,57,105.56,24,19,11
+jenkins,277,31,11.19,248,28,1
+tekton,8,9,112.5,5,2,1
+gitlab,1467,8,0.55,1463,2,2
+github,127,2,1.57,126,0,1
+azure_devops,40,0,0.0,40,0,0
+bamboo,27,0,0.0,27,0,0
+bitbucket,20,0,0.0,20,0,0
+teamcity,277,0,0.0,277,0,0
+travis_ci,1,0,0.0,1,0,0
+Total,2298,107,4.66,2231,51,16

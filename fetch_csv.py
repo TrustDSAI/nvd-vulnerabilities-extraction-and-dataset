@@ -25,50 +25,64 @@ KEYWORDS: list[str] = [
     "bamboo", "bitbucket", "bitbucket server", "bitbucket data center",
     # GitHub
     "github", "github actions", "github enterprise server", "actions runner",
-    "actions toolkit", "codeql", "cmark-gfm", "gaug.es",
+    "actions toolkit", "codeql",
     # GitLab
     "gitlab", "gitlab-shell", "gitlab runner",
     # Jenkins
-    "jenkins", "cloudbees", "soapui",
+    "jenkins", "cloudbees",
     # TeamCity
     "teamcity", "jetbrains teamcity",
     # Tekton
     "tekton", "tekton pipelines",
     # Travis CI
     "travis ci", "travis-ci",
+    #pipeline related words
+    "pipeline", "poisoned pipeline execution", "workflow", "runner", "build agent", "ci/cd", "continuous integration",
+    "build server", "merge request", "pull request", "repository"
 ]
 REQUEST_DELAY = 0.6
 RESULTS_PER_PAGE = 2000
 OUTPUT_FILE      = "data/new_datasets/dataset_cve.csv"
-CPES = [
-    "cpe:2.3:a:argoproj:argo_cd:",
-    "cpe:2.3:a:atlassian:bamboo:",
-    "cpe:2.3:a:atlassian:bitbucket:",
-    "cpe:2.3:a:atlassian:bitbucket_auto_unapprove_plugin:",
-    "cpe:2.3:a:atlassian:bitbucket_data_center:",
-    "cpe:2.3:a:atlassian:bitbucket_server:",
-    "cpe:2.3:a:cloudbees:jenkins:",
-    "cpe:2.3:a:github:actions:",
-    "cpe:2.3:a:github:actions_toolkit:",
-    "cpe:2.3:a:github:cli:",
-    "cpe:2.3:a:github:cmark-gfm:",
-    "cpe:2.3:a:github:codeql_action:",
-    "cpe:2.3:a:github:enterprise_server:",
-    "cpe:2.3:a:github:gaug.es:",
-    "cpe:2.3:a:github:github:",
-    "cpe:2.3:a:github:pull_requests_and_issues:",
-    "cpe:2.3:a:github:runner:",
-    "cpe:2.3:a:github:toolkit:",
-    "cpe:2.3:a:gitlab:gitlab-shell:",
-    "cpe:2.3:a:gitlab:gitlab:",
-    "cpe:2.3:a:jenkins:jenkins:",
-    "cpe:2.3:a:jenkins:soapui_pro_functional_testing:",
-    "cpe:2.3:a:jetbrains:teamcity:",
-    "cpe:2.3:a:linuxfoundation:argo-cd:",
-    "cpe:2.3:a:linuxfoundation:tekton_pipelines:",
-    "cpe:2.3:a:travis-ci:travis_ci:",
-    "cpe:2.3:o:microsoft:azure_devops_server:"
-]
+CPES: dict[str, list[str]] = {
+    "argo_cd": [
+        "cpe:2.3:a:argoproj:argo_cd:",
+        "cpe:2.3:a:linuxfoundation:argo-cd:",
+    ],
+    "azure_devops": [
+        "cpe:2.3:o:microsoft:azure_devops_server:",
+    ],
+    "bamboo": [
+        "cpe:2.3:a:atlassian:bamboo:",
+    ],
+    "bitbucket": [
+        "cpe:2.3:a:atlassian:bitbucket:",
+        "cpe:2.3:a:atlassian:bitbucket_data_center:",
+        "cpe:2.3:a:atlassian:bitbucket_server:",
+    ],
+    "github": [
+        "cpe:2.3:a:github:actions:",
+        "cpe:2.3:a:github:actions_toolkit:",
+        "cpe:2.3:a:github:codeql_action:",
+        "cpe:2.3:a:github:enterprise_server:",
+        "cpe:2.3:a:github:runner:",
+    ],
+    "gitlab": [
+        "cpe:2.3:a:gitlab:gitlab:",
+    ],
+    "jenkins": [
+        "cpe:2.3:a:cloudbees:jenkins:",
+        "cpe:2.3:a:jenkins:jenkins:",
+    ],
+    "teamcity": [
+        "cpe:2.3:a:jetbrains:teamcity:",
+    ],
+    "tekton": [
+        "cpe:2.3:a:linuxfoundation:tekton_pipelines:",
+    ],
+    "travis_ci": [
+        "cpe:2.3:a:travis-ci:travis_ci:",
+    ],
+}
 LIST_FIELDS: list[str] = ["descriptions", "weaknesses", "configurations", "references", "cveTags"]
 DICT_FIELDS: list[str] = ["metrics"]
 
@@ -99,6 +113,7 @@ def write_csv(rows: list[dict[str, Any]], path: str = OUTPUT_FILE) -> None:
         logging.warning("No rows to write — skipping CSV creation.")
         return
 
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     fieldnames = list(rows[0].keys())
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -179,51 +194,24 @@ def verify_vulnerability_cpe(vuln, target_cpe):
 
     return False
 
-def merge_csvs(input_folder: str, output_file: str) -> None:
-    """
-    Merges all csv files into one
-    """
-
-    csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
-
-    if not csv_files:
-        print("Nenhum CSV encontrado na pasta.")
-        return
-
-    dfs = []
-
-    for file in csv_files:
-        try:
-            df = pd.read_csv(file)
-            dfs.append(df)
-            print(f"Lido: {file} ({len(df)} linhas)")
-        except Exception as e:
-            print(f"Erro ao ler {file}: {e}")
-
-    if not dfs:
-        print("Nenhum CSV válido para juntar.")
-        return
-
-    merged_df = pd.concat(dfs, ignore_index=True)
-
-    if "id" in merged_df.columns:
-        merged_df = merged_df.drop_duplicates(subset=["id"])
-
-    merged_df.to_csv(output_file, index=False, encoding="utf-8")
-
-    print(f"\nFicheiro final criado: {output_file}")
-    print(f"Total de linhas: {len(merged_df)}")
+def matched_project(vuln: dict[str, Any]) -> str | None:
+    """Return the first project whose CPEs match this CVE, or None."""
+    for project, cpes in CPES.items():
+        if any(verify_vulnerability_cpe(vuln, cpe) for cpe in cpes):
+            return project
+    return None
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
     vulnerabilities = fetch_from_api()
     rows = []
     for v in vulnerabilities:
-        if any(verify_vulnerability_cpe(v, cpe) for cpe in CPES):
-            rows.append(extract_data(v))
+        project = matched_project(v)
+        if project:
+            row = extract_data(v)
+            row["project"] = project
+            rows.append(row)
     write_csv(rows)
-    merge_csvs("data/datasets/", "data/datasets/cves_merged.csv")
-
 
 if __name__ == "__main__":
     main()
