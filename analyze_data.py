@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import json
 
-OUTPUT_DIR = "data/data analysis"
+OUTPUT_DIR = "data/new_datasets/data_analysis"
 
 # ─────────────────────────────────────────────
 # 0. SETUP
@@ -20,40 +20,7 @@ def setup():
 # 1. LOAD DATA
 # ─────────────────────────────────────────────
 def load_data():
-    files = [
-        "data/datasets/cves_full_argo_cd.csv",
-        "data/datasets/cves_full_azure_devops.csv",
-        "data/datasets/cves_full_bamboo.csv",
-        "data/datasets/cves_full_bitbucket.csv",
-        "data/datasets/cves_full_github.csv",
-        "data/datasets/cves_full_gitlab.csv",
-        "data/datasets/cves_full_jenkins.csv",
-        "data/datasets/cves_full_teamcity.csv",
-        "data/datasets/cves_full_tekton.csv",
-        "data/datasets/cves_full_travis_ci.csv"
-    ]
-
-    projects = [
-        "argo_cd",
-        "azure_devops",
-        "bamboo",
-        "bitbucket",
-        "github",
-        "gitlab",
-        "jenkins",
-        "teamcity",
-        "tekton",
-        "travis_ci"
-    ]
-
-    dfs = []
-
-    for file, project in zip(files, projects):
-        df = load_cve_dataset(file)
-        df["project"] = project
-        dfs.append(df)
-
-    return pd.concat(dfs, ignore_index=True)
+    return load_cve_dataset("data/new_datasets/dataset_cve.csv")
 
 def save_data(output_path="data/datasets/cves_merged.csv"):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -340,6 +307,65 @@ def analyze_commits_per_project(df):
     return df_commits
 
 # ─────────────────────────────────────────────
+# GRAPHIC TO CHECK HOW MANY CVES ARE THERE PER PROJECT
+# ─────────────────────────────────────────────
+
+def plot_cves_per_project(df):
+    counts = df["project"].value_counts().sort_values(ascending=False)
+
+    plt.figure(figsize=(10, 6))
+    ax = sns.barplot(x=counts.index, y=counts.values, hue=counts.index, legend=False)
+
+    # número no topo de cada barra
+    for container in ax.containers:
+        ax.bar_label(container, fmt="%d", padding=3)
+
+    ax.set_title("Número de vulnerabilidades por projeto")
+    ax.set_xlabel("Projeto")
+    ax.set_ylabel("Nº de CVEs")
+    ax.margins(y=0.1)  # espaço extra para os números não cortarem
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/cves_per_project_bar.png", dpi=150)
+    plt.show()
+
+def plot_old_vs_new(df_new, old_path):
+    df_old = pd.read_csv(old_path, usecols=["id", "project"])
+
+    old_counts = df_old.drop_duplicates("id")["project"].value_counts()
+    new_counts = df_new.drop_duplicates("id")["project"].value_counts()
+
+    comp = (
+        pd.DataFrame({"Antigo": old_counts, "Novo": new_counts})
+        .fillna(0)
+        .astype(int)
+        .sort_values("Novo", ascending=False)
+    )
+    comp.to_csv(f"{OUTPUT_DIR}/cves_old_vs_new.csv")
+
+    long_df = comp.reset_index(names="project").melt(
+        id_vars="project", var_name="Dataset", value_name="count"
+    )
+
+    plt.figure(figsize=(12, 6))
+    ax = sns.barplot(data=long_df, x="project", y="count", hue="Dataset")
+
+    for container in ax.containers:
+        ax.bar_label(container, fmt="%d", padding=3)
+
+    ax.set_title("Nº de vulnerabilidades por projeto: dataset antigo vs novo")
+    ax.set_xlabel("Projeto")
+    ax.set_ylabel("Nº de CVEs")
+    ax.margins(y=0.1)
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/cves_old_vs_new_bar.png", dpi=150)
+    plt.show()
+
+    return comp
+
+
+# ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
 def main():
@@ -351,13 +377,13 @@ def main():
 
     df_commits = analyze_commits_per_project(df)
 
-    #exploded, pivot_cwe, pivot_year, cwe_counts = create_analysis_tables(df)
+    exploded, pivot_cwe, pivot_year, cwe_counts = create_analysis_tables(df)
 
     #cvss_analysis(df)
     #save_tables(df, pivot_cwe, pivot_year, cwe_counts)
 
     #generate_plots(pivot_year, cwe_counts, df)
-
+    plot_old_vs_new(df, "data/datasets/cves_merged.csv")
 
 if __name__ == "__main__":
     main()

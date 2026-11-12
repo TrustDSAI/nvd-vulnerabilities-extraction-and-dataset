@@ -1,0 +1,10 @@
+Category,unique_cves,percentage
+Input Validation,595,35.25%
+Permission,594,35.19%
+Coding Practices,214,12.68%
+Data Protection,142,8.41%
+File Management,71,4.21%
+Error Handling and Logging,53,3.14%
+Output Encoding,11,0.65%
+System Configuration,8,0.47%
+TOTAL,1688,100%
